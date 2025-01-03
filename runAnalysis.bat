@@ -1,0 +1,1 @@
+R -e "shiny::runApp('qPCR_Analysis_GUI.R', launch.browser = TRUE)"
