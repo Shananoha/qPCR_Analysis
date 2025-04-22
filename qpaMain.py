@@ -75,13 +75,17 @@ def preprocess(data, ref_gene, remove_outliers=True):
         raise ValueError('未检测到有效控制组样本，请检查样本命名规范（nc/con/ctrl）')
     # 对每个目标基因计算IQR范围并过滤异常值
     df_clear = df_clear.groupby('targetName', group_keys=False).apply(lambda x:
-                                                    x[ (x.control_group & (
-                                                                (x.deltaCT >= (x[x.control_group].deltaCT.quantile(0.25) - 1.5 * (
-                                                        x[x.control_group].deltaCT.quantile(0.75) - x[x.control_group].deltaCT.quantile(0.25)))) &
-                                                          (x.deltaCT <= (x[x.control_group].deltaCT.quantile(0.75) + 1.5 * (
-                                                                  x[x.control_group].deltaCT.quantile(0.75) - x[x.control_group].deltaCT.quantile(0.25))))
-                                                        ) | ~x.control_group ) ].reset_index(
-        drop=True))
+        x[
+            (x.control_group & (
+                (x.deltaCT >= (x[x.control_group].deltaCT.quantile(0.25) - 1.5 * (
+                    x[x.control_group].deltaCT.quantile(0.75) - x[x.control_group].deltaCT.quantile(0.25)
+                ))) &
+                (x.deltaCT <= (x[x.control_group].deltaCT.quantile(0.75) + 1.5 * (
+                    x[x.control_group].deltaCT.quantile(0.75) - x[x.control_group].deltaCT.quantile(0.25)
+                )))
+            )) | ~x.control_group
+        ]
+    ).reset_index(drop=True)
 
     # 计算相对表达量并标准化处理
     df_refExpr = df_clear.copy()
@@ -93,10 +97,10 @@ def preprocess(data, ref_gene, remove_outliers=True):
     df_refExpr = df_refExpr.merge(control_mean, on='targetName')
     df_refExpr['norm_expr'] = df_refExpr['rel_expr'] / df_refExpr['control_mean']
 
+    pre_count = len(df_refExpr)
     print(f'执行非对照组IQR筛选，参数状态：remove_outliers={remove_outliers}')
     if remove_outliers:
         # 对非对照组数据进行IQR异常值筛选
-        pre_count = len(df_refExpr)
         df_final = df_refExpr.groupby(['targetName', 'groupName'], group_keys=False).apply(lambda x:
             x[
                 (x.control_group) | (
@@ -112,12 +116,12 @@ def preprocess(data, ref_gene, remove_outliers=True):
                         )
                     )
                 )
-            ]
+                ]
         ).reset_index(drop=True)
+        print(f'筛选后数据量：{len(df_final)}行 (减少{pre_count - len(df_final)}行)')
     else:
         df_final = df_refExpr
-
-    print(f'筛选后数据量：{len(df_final)}行 (减少{pre_count - len(df_final)}行)')
+        print(f'筛选后数据量：{len(df_final)}行')
     print('最终数据摘要：\n', df_final[['groupName', 'targetName', 'norm_expr']].describe())
     print('有效样本分布：', df_final.groupby('groupName').size().to_dict())
 
