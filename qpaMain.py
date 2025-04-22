@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
+import os
+import traceback
 
 
 def load_data(file_path):
     """读取qPCR数据文件"""
-    import os
     if not os.path.exists(file_path):
         raise FileNotFoundError(f'数据文件未找到：{file_path}\n请检查：\n1. 文件路径是否正确\n2. 当前工作目录是否为项目根目录')
     return pd.read_csv(file_path)
@@ -130,6 +131,34 @@ def preprocess(data, ref_gene, remove_outliers=True):
         'statistics': df_final.describe(),
         'filter_applied': remove_outliers
     }
+
+
+def process_plot_data(final_data):
+    """处理作图数据转换逻辑"""
+    try:
+        grouped = final_data.groupby('targetName')
+        transformed_data = pd.DataFrame()
+        for target, group_data in grouped:
+            print(f'开始处理target: {target}')
+            print(f'group_data结构:\n{group_data.head(2)}')
+            print(f'group_data列名: {group_data.columns.tolist()}')
+            group_data = group_data.reset_index(drop=True)
+            # 添加唯一索引
+            group_data['unique_index'] = group_data.groupby(['targetName', 'groupName']).cumcount()
+            pivot_data = group_data.pivot(
+                index=['targetName', 'unique_index'],
+                columns='groupName',
+                values='norm_expr'
+            )
+            print(f'生成的pivot_table结构:\n{pivot_data.head().to_string()}')
+            transformed_data = pd.concat([transformed_data, pivot_data])
+        transformed_data = transformed_data.reset_index()
+        print(f'生成动态列: {transformed_data.columns.tolist()}')
+        return transformed_data
+    except Exception as e:
+        print(f'数据转换错误: {e}')
+        traceback.print_exc()
+        return pd.DataFrame()
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
 from PyQt5.QtCore import Qt, QAbstractTableModel, pyqtSignal
 import qpaMain
 import logging
+import pandas as pd
 
 class DataFrameModel(QAbstractTableModel):
     layoutChanged = pyqtSignal()
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         self.current_data = None
         self.results = None
         self.is_valid_results = False
+        self.plot_data = None
         self.initUI()
 
     def initUI(self):
@@ -76,10 +78,20 @@ class MainWindow(QMainWindow):
         self.btn_analyze.clicked.connect(self.run_analysis)
         control_layout.addWidget(self.btn_analyze)
 
+        # 计算按钮
+        self.btn_calculate = QPushButton('开始计算')
+        self.btn_calculate.clicked.connect(self.preview_plot_data)
+        control_layout.addWidget(self.btn_calculate)
+
         # 下载按钮
         self.btn_download = QPushButton('下载结果')
         self.btn_download.clicked.connect(self.save_results)
         control_layout.addWidget(self.btn_download)
+
+        # 下载作图数据按钮
+        self.btn_plot = QPushButton('下载作图数据')
+        self.btn_plot.clicked.connect(self.save_plot_data)
+        control_layout.addWidget(self.btn_plot)
 
         # 状态标签
         control_layout.addWidget(self.status_label)
@@ -91,9 +103,11 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tab_raw = QTableView()
         self.tab_results = QTableView()
+        self.tab_plot = QTableView()
 
         self.tabs.addTab(self.tab_raw, "原始数据")
         self.tabs.addTab(self.tab_results, "处理结果")
+        self.tabs.addTab(self.tab_plot, "作图数据")
 
         main_layout.addWidget(self.tabs)
 
@@ -148,6 +162,23 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText('状态: 预处理结果为空或无效')
 
+    def preview_plot_data(self):
+        if self.is_valid_results:
+            final_data = self.results.get('final_data')
+            try:
+                # 调用qpaMain的数据处理函数
+                transformed_data = qpaMain.process_plot_data(final_data)
+                
+                if transformed_data.empty:
+                    raise ValueError('数据转换失败')
+                
+                self.plot_data = transformed_data
+                self.show_data(self.tab_plot, self.plot_data)
+            except Exception as e:
+                logging.error(f'数据转换失败: {e}')
+        else:
+            self.status_label.setText('状态: 没有结果可供保存')
+
     def save_results(self):
         if self.is_valid_results:
             options = QFileDialog.Options()
@@ -160,6 +191,20 @@ class MainWindow(QMainWindow):
                     final_data.to_csv(file_path, index=False)
                 except Exception as e:
                     logging.error(f'结果保存失败: {e}')
+        else:
+            self.status_label.setText('状态: 没有结果可供保存')
+
+    def save_plot_data(self):
+        if self.plot_data is not None:
+            options = QFileDialog.Options()
+            file_path, _ = QFileDialog.getSaveFileName(self, "保存作图数据", "", 
+                                                  "CSV Files (*.csv);;Text Files (*.txt)", 
+                                                  options=options)
+            if file_path:
+                try:
+                    self.plot_data.to_csv(file_path, index=False)
+                except Exception as e:
+                    logging.error(f'数据转换失败: {e}')
         else:
             self.status_label.setText('状态: 没有结果可供保存')
 
