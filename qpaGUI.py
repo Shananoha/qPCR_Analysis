@@ -2,10 +2,12 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QFileDialog, QPushButton, QLabel, QTableView, QTabWidget,
                               QCheckBox, QComboBox, QGroupBox, QFileDialog)
-from PyQt5.QtCore import Qt, QAbstractTableModel
+from PyQt5.QtCore import Qt, QAbstractTableModel, pyqtSignal
 import qpaMain
+import logging
 
 class DataFrameModel(QAbstractTableModel):
+    layoutChanged = pyqtSignal()
     def __init__(self, data):
         super().__init__()
         self._data = data
@@ -32,9 +34,12 @@ class DataFrameModel(QAbstractTableModel):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.initUI()
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        self.status_label = QLabel('状态: 未加载数据')
         self.current_data = None
         self.results = None
+        self.is_valid_results = False
+        self.initUI()
 
     def initUI(self):
         self.setWindowTitle('qPCR数据分析平台')
@@ -76,6 +81,9 @@ class MainWindow(QMainWindow):
         self.btn_download.clicked.connect(self.save_results)
         control_layout.addWidget(self.btn_download)
 
+        # 状态标签
+        control_layout.addWidget(self.status_label)
+
         control_panel.setLayout(control_layout)
         main_layout.addWidget(control_panel)
 
@@ -95,49 +103,65 @@ class MainWindow(QMainWindow):
                                                   "CSV Files (*.csv);;Text Files (*.txt)", 
                                                   options=options)
         if file_path:
-            self.current_data = qpaMain.load_data(file_path)
-            self.update_ref_gene_choices()
-            self.show_data(self.tab_raw, self.current_data)
+            try:
+                self.current_data = qpaMain.load_data(file_path)
+                self.status_label.setText(f'状态: 加载成功')
+                logging.info(f'加载数据成功，数据形状: {self.current_data.shape}')
+                logging.info(f'加载数据列名: {self.current_data.columns}')
+                self.update_ref_gene_choices()
+                self.show_data(self.tab_raw, self.current_data)
+            except Exception as e:
+                self.status_label.setText(f'状态: 加载失败')
+                logging.error(f'数据加载失败: {e}')
+                self.current_data = None
 
     def update_ref_gene_choices(self):
         if self.current_data is not None:
             self.cmb_ref_gene.clear()
-            self.cmb_ref_gene.addItems(self.current_data['Target'].unique())
+            if 'Target' in self.current_data.columns:
+                self.cmb_ref_gene.addItems(self.current_data['Target'].unique())
+            else:
+                logging.warning('加载数据中缺少Target列')
 
     def show_data(self, widget, data):
         model = DataFrameModel(data)
         widget.setModel(model)
+        model.layoutChanged.emit()
 
     def run_analysis(self):
         if self.current_data is not None:
             ref_gene = self.cmb_ref_gene.currentText()
             remove_outliers = self.chk_outliers.isChecked()
             self.results = self.add_error_handler(lambda: qpaMain.preprocess(self.current_data, ref_gene, remove_outliers))
-            self.update_results_display()
+            if isinstance(self.results, dict):
+                logging.info(f'预处理结果结构: {self.results.keys()}')
+                self.is_valid_results = 'final_data' in self.results and not self.results['final_data'].empty
+                self.update_results_display()
+            else:
+                self.is_valid_results = False
+                self.status_label.setText('状态: 分析失败')
 
     def update_results_display(self):
-        if self.results is not None:
+        if self.is_valid_results:
             final_data = self.results.get('final_data')
-            if 'final_data' not in self.results:
-                print('预处理结果缺少final_data字段')
-                return
             self.show_data(self.tab_results, final_data)
+        else:
+            self.status_label.setText('状态: 预处理结果为空或无效')
 
     def save_results(self):
-        if self.results is not None:
+        if self.is_valid_results:
             options = QFileDialog.Options()
             file_path, _ = QFileDialog.getSaveFileName(self, "保存结果文件", "", 
                                                   "CSV Files (*.csv);;Text Files (*.txt)", 
                                                   options=options)
             if file_path:
                 final_data = self.results.get('final_data')
-                if not final_data.empty:
-                    try:
-                        final_data.to_csv(file_path, index=False)
-                    except KeyError:
-                        print('预处理结果缺少final_data字段')
-                else:
-                    print('预处理结果为空')
+                try:
+                    final_data.to_csv(file_path, index=False)
+                except Exception as e:
+                    logging.error(f'结果保存失败: {e}')
+        else:
+            self.status_label.setText('状态: 没有结果可供保存')
 
     def add_error_handler(self, func):
         try:
